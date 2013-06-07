@@ -14,3 +14,11 @@ git push -u origin master
 
 git remote add origin https://github.com/janhelge/diverse.git
 git push -u origin master
+
+
+
+# *** Legge til flere
+git add files...
+git commit
+git push origin master # Oppgi bruker og passord
+
