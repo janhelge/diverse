@@ -1,0 +1,60 @@
+#!/bin/sh
+# export CVSROOT=:pserver:janhelge@retriever2.retriever-info.com:/www/nyheter/cvs
+# export CVSROOT=/z/dist/cvs
+export CVSROOT=/z/dist/CvsRepos
+# export LANG=no_NO.UTF-8
+export LANG=en_US.UTF-8
+export CVSROOT=:pserver:janhelge@127.0.0.1:/z/dist/CvsRepos
+export MANPATH=/usr/share/man:/usr/local/ssl/man
+export MIME_WS_HOME=/z/checkouts/try1/maven/mime-ws-home
+# export MIME_WS_HOME=/z/documentum/shared
+export SVN_EDITOR=/bin/vi
+export MW_HOME=/z/java/wls1211
+
+case `uname -n` in
+SVV-42643.vegvesen.no|tix.vegvesen.no|tux|rix|linux-u9lx|tix.webtech.no|asterix|asterix.webtech.no)
+	echo `uname -n` settings
+	#export LD_LIBRARY_PATH=/z/dist/jfit
+	export JAVA_HOME=/z/java/jdk1.5.0_22
+	# export JAVA_HOME=/z/java/jdk1.6.0_33
+	# export JAVA_HOME=/z/java/jdk-7u6-linux-i586-32bit
+	# export JAVA_HOME=/z/java/jdk1.7.0_05
+	# export JDK_HOME=$JAVA_HOME # For netbeans - edesigner...
+	# export JAVA_HOME=/z/java/jdk1.7.0_05x86
+	export ANT_HOME=/z/java/apache-ant-1.8.4
+	ECLIPSE_MARK=/z/java/eclipse-jee-juno-linux-gtk-x86_64/eclipse/eclipse
+	# export MAVEN_HOME=/z/java/apache-maven-2.2.1
+	export MAVEN_HOME=/z/java/apache-maven-3.0.4
+	;;
+# SVV-41759)
+	# echo `uname -n` settings
+	# export MAVEN_HOME=/z/java/apache-maven-3.0.4
+	# # export JAVA_HOME=/z/java/jdk1.6.0_33
+	# export JAVA_HOME=/z/java/jdk7u5
+	# e=/z/java/eclipse-SDK-4.2RC3-win32-x86_64/eclipse/eclipse;
+	# ;;
+*)
+	echo "Cusomize mee please"
+	;;
+esac
+
+# DukesBanc Inc
+# export APPCPATH=/z/java/j2eetutorial/bank/jar/DukesBankAppClient.jar
+
+PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin:/usr/X11R6/bin:/z/bin:.:
+X="";
+if [ "$ECLIPSE_MARK"     != "" ];then X="$X$ECLIPSE_MARK:";     fi
+if [ "$JAVA_HOME"     != "" ];then X="$X$JAVA_HOME/bin:";     fi
+if [ "$ORACLE_HOME"   != "" ];then X="$X$ORACLE_HOME/bin:";   fi
+if [ "$ANT_HOME"      != "" ];then X="$X$ANT_HOME/bin:";      fi
+if [ "$J2EE_HOME"     != "" ];then X="$X$J2EE_HOME/bin:";     fi
+if [ "$CATALINA_HOME" != "" ];then X="$X$CATALINA_HOME/bin:"; fi
+if [ "$JAXB_HOME"     != "" ];then X="$X$JAXB_HOME/bin:";     fi
+if [ "$JETTY_HOME"     != "" ];then X="$X$JETTY_HOME/bin:";   fi
+if [ "$JC_HOME"       != "" ];then X="$X$JC_HOME/bin:";     fi
+if [ "$MAVEN_HOME"       != "" ];then X="$X$MAVEN_HOME/bin:";     fi
+
+export PATH=$X$PATH
+
+echo -e "\033[0;31m Profile OK \033[0m"
+
