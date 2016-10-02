@@ -1,24 +1,59 @@
 #!/bin/bash
+Documetation(){ : <<-! | tr -d '#' # >README.md
+# DOC: This script tracks the $YmlDir directory for yml-files
+# and starts/stops docker containers accordingly. If an yml file
+# is removed, and the script refreshes, the corresponding docker
+# container is terminated. 
+#
+# This script responds to two signals
+#  * INT (aka ctrl-c)  Refreshes 
+#        the configuration and adopts to changes
+#  * TERM cleanup and terminate
+#
+# This script is intended to run as a slave script of
+# a daemon procsss (see docker-babysitter-daemon.sh)
+!
+}; # Documetation; exit
 
-StartContainerFromYml(){
-	local _pod _v _services _s _r _i _f _a _x
-	local _dockerimage _runflags _runargs
-	_pod=$(BaseFromYmlFileName $1)
-	# echo; echo; echo DEBUG; cat $1|ParseYaml ${_pod}_; echo; echo; echo
-	eval $(cat $1|ParseYaml ${_pod}_)
-
-	_services="$(eval echo \$${_pod}_services)"
-	# echo DEBUG _services=$_services
-	for _s in $(echo $_services); do
-		DEBUG StartContaingerFromYml Will start $_s
-		_x="${_pod}_services_${_s}_"
-		_runargs="$(eval echo \$${_x}runargs)" # e.g: /bin/bash
-		_runflags="$(eval echo \$${_x}runflags)" # Feks: -itp 8080:8080 -d
-		_dockerimage=$(eval echo \$${_x}dockerimage)
-		DEBUG $_s dockerimage: $_dockerimage Flags=${_runflags} Args: ${_runargs}
-		LoadIfFileAndNotLoaded $_dockerimage
-		docker run ${_runflags} $_s ${_runargs}
-	done
+verboseLevel=1 # 0==Only_ERROR, 1==INFO_AndBelow, 2==DEBUG_AndBelow
+YmlDir=/z/deploy/yml
+DockerStopGracetime="--time=1"
+# PrivateTemporaryFile=/tmp/slave-tmp-$$.tmp
+Adopted=""
+Echo(){ echo $(date "+%Y-%m-%d %H:%M.%S") $*; }
+ERROR(){ 	if [ "$verboseLevel" -ge 0 ];then Echo ERROR 	$*;fi; }
+INFO(){ 	if [ "$verboseLevel" -ge 1 ];then Echo INFO 	$*;fi; }
+DEBUG(){ 	if [ "$verboseLevel" -ge 2 ];then Echo DEBUG 	$*;fi; }
+Doit(){
+	DieIfNotDockerd
+	# BrutalStopAndRemoveContainers; exit
+	# MakeYamls
+	on_ctrl_c() {
+		DEBUG Will terminate on CTRL-C
+		Adopt /dev/null # Adopt as if no yamls was active
+		DEBUG Normal end
+		exit 0;
+	}
+	on_hup() {
+		DEBUG Will refresh on HUP
+		Adopt $YmlDir
+		return;
+	}
+	trap on_ctrl_c INT;
+	trap on_hup HUP;
+	Adopt $YmlDir
+	DEBUG "To continue, do kill -HUP $$ or ctrl_c"
+	echo kill -HUP $$ > /tmp/refresh.sh; DEBUG Made /tmp/refresh.sh with pid=$$
+	while :;do sleep 0.3; done # Consider 0.3 to be more snappy
+}
+Reverse(){ echo $*|awk '{for (i=NF; i>0; i--) printf "%s ",$(i);}'; }
+Memorize(){ eval mem_$1=$(cat $2|gzip|base64 -w0); DEBUG memorized $1; }
+Docker(){
+	echo
+	echo '#About to run dockercommand:'
+	echo '##################'
+	echo docker $*
+	echo '##################'
 }
 
 LoadIfFileAndNotLoaded(){
@@ -34,20 +69,19 @@ LoadIfFileAndNotLoaded(){
 	fi
 }
 Adopt(){
-	local news=$(Actual $YmlDir) _x _pod
+	# d1=normally $YmlDir, exept when terminating
+	local news=$(Actual $1) _x _pod
 	if [ "$Adopted" != "$news" ];then
 		for _x in $(AnotinB "$Adopted" "$news");do
 			_pod=$(BaseFromYmlFileName $_x)
-			INFO Stopping pod $_pod from missing $_x 
-			Recall $_pod
-			_action="true";
+			INFO Stopping $_pod from memorized $(basename $_x)
+			UseMemorizedConfigAndTerminate $_pod
 		done
 		for _x in $(AnotinB "$news" "$Adopted");do
 			_pod=$(BaseFromYmlFileName $_x)
-			INFO Starting pod $_pod from $_x 
+			INFO Starting $_pod from $(basename $_x)
 			StartContainerFromYml $_x
 			Memorize $_pod $_x
-			_action="true";
 		done
 		Adopted=$news
 	else
@@ -55,6 +89,8 @@ Adopt(){
 	fi
 }
 AnotinB(){
+# Enries is a colon-separated list as in /a/file.yml:/a/file2.yml 
+# This function returns enries in $1 that is not in $2. 
 	local _a _b	
 	for _a in $(echo $1|tr : " "); do
 		for _b in $(echo $2|tr : " "); do
@@ -65,6 +101,7 @@ AnotinB(){
 }
 BaseFromYmlFileName(){ basename $1|sed 's/\.yml$//g';}
 Actual(){ 
+	# Will normally have arg1=$YmlDir, but /dev/null when terminating
 	local dir=$1 y accumul colon;
 	for y in $(ls $dir/*.yml 2>/dev/null);do
 		if [ -f "$y" ];then 
@@ -78,23 +115,60 @@ DieIfNotDockerd(){
 	while [ $retry -gt 0 ];do
 		docker images -q dummy >/dev/null 2>&1
 		if [ "$?" -ne 0 ];then
-			ERROR You must start dockerdeamon first, retry $retry
+			ERROR Unable to communicate with docker deamon. Will try again
+			# ERROR docker deamon is not active, $retry retries left
 			sleep 3
 		else
-			DEBUG dockerdeamon OK
+			DEBUG Fine, docker deamon responds OK
 			return
 		fi
 		retry=$((retry - 1));
 	done
-	ERROR Giveup waiting on dockerdeamon retries: $retry FAIL
+	ERROR This scripts will terminate and FAIL
 	exit 1
 }
-StopAndRemoveContainers(){
+
+StartContainerFromYml(){
+	local _pod _services _serv _x
+	local _dockerimage _runflags _runargs
+	_pod=$(BaseFromYmlFileName $1)
+	# echo; echo; echo DEBUG; cat $1|ParseYaml ${_pod}_; echo; echo; echo
+	eval $(cat $1|ParseYaml ${_pod}_)
+
+	_services="$(eval echo \$${_pod}_services)"
+	# echo DEBUG _services=$_services
+	for _serv in $(echo $_services); do
+		DEBUG StartContaingerFromYml Will start $_serv
+		_x="${_pod}_services_${_serv}_"
+		_runargs="$(eval echo \$${_x}runargs)" # e.g: /bin/bash
+		_runflags="$(eval echo \$${_x}runflags)" # e.g: -itp 8080:8080 -d
+		_dockerimage=$(eval echo \$${_x}dockerimage)
+		# DEBUG $_serv dockerimage: $_dockerimage Flags=${_runflags} Args: ${_runargs}
+		LoadIfFileAndNotLoaded $_dockerimage
+		# rm -f $PrivateTemporaryFile
+		# docker run --cidfile $PrivateTemporaryFile ${_runflags} $_serv ${_runargs}
+		# _x=$(cat $PrivateTemporaryFile; rm -f $PrivateTemporaryFile)
+		docker run ${_runflags} $_serv ${_runargs}
+		DEBUG Started $_serv as cid $_x
+	done
+}
+
+UseMemorizedConfigAndTerminate(){
+	local _pod=$1 _v _services
+	_v=$(eval echo \$mem_$_pod)
+	eval $(echo $_v|base64 -d|zcat|ParseYaml ${_pod}_)
+	_services=$(eval echo \$${_pod}_services)
+	DEBUG Bring down services in sequence $(Reverse $_services)
+	_v=$(docker stop $DockerStopGracetime $(Reverse $_services)); DEBUG Stopped $_v
+	_v=$(docker rm $(Reverse $_services)); DEBUG cleaned up $_v
+}
+
+BrutalStopAndRemoveContainers(){
 	if [ "$(docker ps -aq)" != "" ];then
-		docker stop --time=3 $(docker ps -aq) > /dev/null
-		docker rm -f $(docker ps -aq) > /dev/null
+		docker stop $DockerStopGracetime $(docker ps -aq) # > /dev/null
+		docker rm -f $(docker ps -aq) # > /dev/null
 		INFO docker containers stopped and removed
-		# docker rmi -f $(docker images -aq); echo Image cleaned
+		# docker rmi -f $(docker images -aq); INFO All Images cleared
 	else
 		DEBUG No container to remove.
 	fi
@@ -117,7 +191,7 @@ UbuntuYaml(){
 	cat <<-!
 		services: ubuntu
 		  ubuntu:
-		    runflags: -itd 
+		    runflags: -itd --name ubuntu 
 		    runargs: bash
 	!
 }
@@ -126,8 +200,6 @@ FotoregYaml(){
 	e="$e -e POSTGRES_PASSWORD=pass"
 	e="$e -e POSTGRES_USER=jhs009"
 	e="$e -e POSTGRES_DB=fangefoto"
-	e="$e --name mypg"
-	e="$e -d"
 	cat <<-!
 		services: mypg fotoreg
 		  mypg:
@@ -135,66 +207,11 @@ FotoregYaml(){
 		    runflags: $e --name mypg -d
 		  fotoreg: 
 		    dockerimage: /z/docker/fotoreg.dockerimage
-		    runflags: -d -p 9191:9191 --link mypg:mypg
+		    runflags: -d -p 9191:9191 --link mypg:mypg --net=host
 	!
 }
 MakeYamls(){
 	FotoregYaml 	> $YmlDir/fotoregws.yml
 	UbuntuYaml 	> $YmlDir/myubuntu.yml
-}
-verboseLevel=2 # 0==Only_ERROR, 1==INFO_AndBelow, 2==DEBUG_AndBelow
-YmlDir=/z/deploy/yml
-Adopted=""
-Echo(){ echo $(date "+%Y-%m-%d %H:%M.%S") $*; }
-ERROR(){ 	if [ "$verboseLevel" -ge 0 ];then Echo ERROR 	$*;fi; }
-INFO(){ 	if [ "$verboseLevel" -ge 1 ];then Echo INFO 	$*;fi; }
-DEBUG(){ 	if [ "$verboseLevel" -ge 2 ];then Echo DEBUG 	$*;fi; }
-
-Doit(){
-	# MakeYamls
-	# INFO Argumenter ved start $*
-	DieIfNotDockerd
-	# ...LoadIfNotLoadednot-implementd
-	# StopAndRemoveContainers; 
-	# if [ "$1" = "stop" ];then exit; fi
-        # Run
-	on_ctrl_c() {
-		DEBUG Trapped CTRL-C
-		# StopAndRemoveContainers
-		DEBUG Normal end
-		exit 0;
-	}
-	on_hup() {
-		DEBUG Refreshing on HUP
-		Adopt
-		return;
-	}
-	trap on_ctrl_c INT;
-	trap on_hup HUP;
-	Adopt
-	DEBUG "To continue, do kill -HUP $$ or ctrl_c"
-	DEBUG Made /tmp/refresh.sh with pid=$$
-	echo kill -HUP $$ > /tmp/refresh.sh
-	while :;do sleep 0.3; done # Consider 0.3 to be more snappy
-}
-Reverse(){ echo $*|awk '{for (i=NF; i>0; i--) printf "%s ",$(i);}'; }
-Recall(){
-	local _pod=$1 _v _services
-	_v=$(eval echo \$mem_$_pod)
-	# DEBUG Recall _v=$_v
-	# echo $_v|base64 -d|zcat|ParseYaml
-	eval $(echo $_v|base64 -d|zcat|ParseYaml $_pod)
-	_v=${_pod}services
-	_services=$(eval echo \$${_v})
-	for _v in $(Reverse $_services); do
-		DEBUG Recall Will halt Service $_v
-		docker stop $_v
-	done
-	
-}
-Memorize(){
-	# local _pod=$1 _ymlfile=$2 _r _a _i
-	eval mem_$1=$(cat $2|gzip|base64 -w0)
-	DEBUG memorized $1
 }
 Doit $*
