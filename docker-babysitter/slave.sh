@@ -14,6 +14,9 @@ Documetation(){ : <<-! | tr -d '#' # >README.md
 # to run as a slave script of a linux lsb-daemon process such as 
 # docker-babysitter-daemon.sh
 # 
+# Caveats:
+# Limitations to use "-" in service names (due to trouble with the yml-parser)
+# Container is assumed to stay up as a service, It produces an error message when stop if not 
 !
 }; # Documetation; exit
 
@@ -21,14 +24,14 @@ verboseLevel=1 # 0==Only_ERROR, 1==INFO_AndBelow, 2==DEBUG_AndBelow
 YmlDir=/z/deploy/yml
 Doit(){
 	DieIfNotDockerd
-	# BrutalStopAndRemoveContainers; exit
+	BrutalStopAndRemoveContainers;# exit
 	MainLoop
 	
 }
 MainLoop(){
 	on_ctrl_c() {
 		DEBUG Will terminate on CTRL-C
-		Adopt /dev/null # Adopt as if no yamls was active
+		Adopt /dev/null # Adopt as if no yamls were active
 		DEBUG Normal end
 		exit 0;
 	}
@@ -132,6 +135,7 @@ DieIfNotDockerd(){
 	exit 1
 }
 
+# JHS
 StartContainerFromYml(){
 	local _pod _services _serv _x
 	local _dockerimage _runflags _runargs
@@ -143,11 +147,11 @@ StartContainerFromYml(){
 	# echo DEBUG _services=$_services
 	for _serv in $(echo $_services); do
 		DEBUG StartContaingerFromYml Will start $_serv
-		_x="${_pod}_services_${_serv}_"
+		_x="${_pod}_services_$(echo ${_serv}|tr -d '-')_"
 		_runargs="$(eval echo \$${_x}runargs)" # e.g: /bin/bash
 		_runflags="$(eval echo \$${_x}runflags)" # e.g: -itp 8080:8080 -d
 		_dockerimage=$(eval echo \$${_x}dockerimage)
-		# DEBUG $_serv dockerimage: $_dockerimage Flags=${_runflags} Args: ${_runargs}
+		DEBUG $_serv dockerimage: $_dockerimage Flags: ${_runflags} Args: ${_runargs}
 		LoadIfFileAndNotLoaded $_dockerimage
 		docker run ${_runflags} $_serv ${_runargs}
 	done
